@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # install.sh - Installation functions for NetHunter Installer
-# Version: 3.0 (May 2025)
+# Version: 3.1 (May 2025) - Updated download logic
 
 # Source core functions if not already loaded
 if [ -z "$NH_VERSION" ]; then
@@ -12,123 +12,31 @@ fi
 
 # ===== Installation Functions =====
 
-# Fetch available image list from server
-nh_fetch_image_list() {
-    nh_log "INFO" "Fetching available image list"
-    
-    local index_url="https://kali.download/nethunter-images/current/rootfs/index.json"
-    local index_file="$NH_CACHE_DIR/image_index.json"
-    
-    # Download index file
-    if ! nh_download_file "$index_url" "$index_file" "image index"; then
-        # If JSON index doesn't exist, try to parse directory listing
-        nh_log "WARNING" "Could not fetch image index, falling back to directory listing"
-        
-        # Create a basic JSON structure
-        cat > "$index_file" << EOF
-{
-  "images": [
-    {"type": "full", "arch": "arm64", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-full-arm64.tar.xz"},
-    {"type": "minimal", "arch": "arm64", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-arm64.tar.xz"},
-    {"type": "nano", "arch": "arm64", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-nano-arm64.tar.xz"},
-    {"type": "full", "arch": "armhf", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-full-armhf.tar.xz"},
-    {"type": "minimal", "arch": "armhf", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-armhf.tar.xz"},
-    {"type": "nano", "arch": "armhf", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-nano-armhf.tar.xz"},
-    {"type": "full", "arch": "amd64", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-full-amd64.tar.xz"},
-    {"type": "minimal", "arch": "amd64", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-amd64.tar.xz"},
-    {"type": "nano", "arch": "amd64", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-nano-amd64.tar.xz"},
-    {"type": "full", "arch": "i386", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-full-i386.tar.xz"},
-    {"type": "minimal", "arch": "i386", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-minimal-i386.tar.xz"},
-    {"type": "nano", "arch": "i386", "url": "https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-nano-i386.tar.xz"}
-  ]
-}
-EOF
-    fi
-    
-    # Verify the index file exists and is valid JSON
-    if [ ! -f "$index_file" ] || ! nh_command_exists jq || ! jq empty "$index_file" 2>/dev/null; then
-        nh_log "ERROR" "Invalid image index file"
-        return 1
-    fi
-    
-    nh_log "SUCCESS" "Image list fetched successfully"
-    return 0
-}
-
-# Get image URL based on type and architecture
+# Get image URL based on type and architecture (Updated Logic)
 nh_get_image_url() {
     local image_type=$1
     local architecture=$2
-    local index_file="$NH_CACHE_DIR/image_index.json"
+    # Define the base URL for NetHunter images
+    local base_url="https://kali.download/nethunter-images/"
+    # Define the Kali version to use (Consider making this dynamic later)
+    local kali_version="kali-2025.1c"
     
-    nh_log "INFO" "Looking for image: type=$image_type, arch=$architecture"
+    nh_log "INFO" "Looking for image: type=$image_type, arch=$architecture, version=$kali_version"
     
-    # Ensure we have the image list
-    if [ ! -f "$index_file" ]; then
-        nh_fetch_image_list || return 1
-    fi
+    # Construct the direct download URL
+    local image_url="${base_url}${kali_version}/rootfs/kali-nethunter-rootfs-${image_type}-${architecture}.tar.xz"
     
-    # Try to find the exact match
-    local image_url=""
-    
-    if nh_command_exists jq; then
-        image_url=$(jq -r ".images[] | select(.type == \"$image_type\" and .arch == \"$architecture\") | .url" "$index_file" 2>/dev/null | head -n 1)
-    else
-        # Fallback to grep if jq is not available
-        image_url=$(grep -o "\"url\":.*$image_type.*$architecture.*\.tar\.xz" "$index_file" | head -n 1 | sed -E 's/.*"url":\s*"([^"]+)".*/\1/')
-    fi
-    
-    # If not found, try alternatives
-    if [ -z "$image_url" ]; then
-        nh_log "WARNING" "Image not found, trying alternatives"
-        
-        # Try other image types
-        for alt_type in "full" "minimal" "nano"; do
-            if [ "$alt_type" != "$image_type" ]; then
-                if nh_command_exists jq; then
-                    image_url=$(jq -r ".images[] | select(.type == \"$alt_type\" and .arch == \"$architecture\") | .url" "$index_file" 2>/dev/null | head -n 1)
-                else
-                    image_url=$(grep -o "\"url\":.*$alt_type.*$architecture.*\.tar\.xz" "$index_file" | head -n 1 | sed -E 's/.*"url":\s*"([^"]+)".*/\1/')
-                fi
-                
-                if [ ! -z "$image_url" ]; then
-                    nh_log "INFO" "Found alternative type: $alt_type"
-                    break
-                fi
-            fi
-        done
-        
-        # If still not found, try other architectures
-        if [ -z "$image_url" ]; then
-            for alt_arch in "arm64" "armhf" "amd64" "i386"; do
-                if [ "$alt_arch" != "$architecture" ]; then
-                    if nh_command_exists jq; then
-                        image_url=$(jq -r ".images[] | select(.type == \"$image_type\" and .arch == \"$alt_arch\") | .url" "$index_file" 2>/dev/null | head -n 1)
-                    else
-                        image_url=$(grep -o "\"url\":.*$image_type.*$alt_arch.*\.tar\.xz" "$index_file" | head -n 1 | sed -E 's/.*"url":\s*"([^"]+)".*/\1/')
-                    fi
-                    
-                    if [ ! -z "$image_url" ]; then
-                        nh_log "INFO" "Found alternative architecture: $alt_arch"
-                        break
-                    fi
-                fi
-            done
-        fi
-    fi
-    
-    # If still not found, use hardcoded URL as last resort
-    if [ -z "$image_url" ]; then
-        nh_log "WARNING" "No suitable image found in index, using hardcoded URL"
-        image_url="https://kali.download/nethunter-images/current/rootfs/kali-nethunter-rootfs-$image_type-$architecture.tar.xz"
-    fi
+    nh_log "DEBUG" "Constructed URL: $image_url"
     
     # Verify the URL is accessible
     if nh_check_url "$image_url"; then
+        nh_log "INFO" "Found image URL: $image_url"
         echo "$image_url"
         return 0
     else
-        nh_log "ERROR" "Image URL is not accessible: $image_url"
+        nh_log "ERROR" "Image URL is not accessible or does not exist: $image_url"
+        nh_log "ERROR" "Please check image type ('$image_type'), architecture ('$architecture'), and Kali version ('$kali_version')."
+        nh_log "ERROR" "You can browse available images at: ${base_url}${kali_version}/rootfs/"
         return 1
     fi
 }
@@ -138,18 +46,16 @@ nh_download_rootfs() {
     local image_type=$1
     local architecture=$2
     
-    nh_log "INFO" "Preparing to download rootfs"
+    nh_log "INFO" "Preparing to download rootfs (type: $image_type, arch: $architecture)"
     
-    # Get image URL
+    # Get image URL using the updated function
     local image_url=$(nh_get_image_url "$image_type" "$architecture")
     if [ -z "$image_url" ]; then
-        nh_log "ERROR" "Failed to get image URL"
+        nh_log "ERROR" "Failed to get a valid image URL for the specified type and architecture."
         return 1
     fi
     
-    nh_log "INFO" "Using image URL: $image_url"
-    
-    # Determine required space based on image type
+    # Determine required space based on image type (Keep existing logic, maybe refine later)
     local required_space=0
     case "$image_type" in
         "full")
@@ -172,20 +78,23 @@ nh_download_rootfs() {
     fi
     
     # Download rootfs
-    local rootfs_file="$NH_CACHE_DIR/kalifs-$architecture.tar.xz"
+    local rootfs_filename="kali-nethunter-rootfs-${image_type}-${architecture}.tar.xz"
+    local rootfs_file="$NH_CACHE_DIR/$rootfs_filename"
+    nh_log "INFO" "Attempting to download rootfs from: $image_url"
     if ! nh_download_file "$image_url" "$rootfs_file" "rootfs"; then
         return 1
     fi
     
     # Extract rootfs
     local extract_dir="$NH_INSTALL_DIR/kali-$architecture"
+    nh_log "INFO" "Extracting rootfs archive to $extract_dir"
     if ! nh_extract_archive "$rootfs_file" "$extract_dir"; then
         return 1
     fi
     
     # Clean up if not keeping archive
     if [ "$NH_KEEP_ARCHIVE" != "true" ]; then
-        nh_log "INFO" "Removing downloaded archive"
+        nh_log "INFO" "Removing downloaded archive: $rootfs_file"
         rm -f "$rootfs_file"
     else
         nh_log "INFO" "Keeping downloaded archive at $rootfs_file"
@@ -202,36 +111,37 @@ nh_create_launch_script() {
     
     local launch_script="$NH_INSTALL_DIR/start-nethunter.sh"
     
-    cat > "$launch_script" << 'EOL'
+    # Use architecture variable correctly in the script path
+    cat > "$launch_script" << EOL
 #!/data/data/com.termux/files/usr/bin/bash
-cd $(dirname $0)
-## Start NetHunter
+cd \$(dirname \$0)
+## Start NetHunter for $architecture
 unset LD_PRELOAD
 command="proot"
 command+=" --link2symlink"
 command+=" -0"
-command+=" -r kali-$1"
+command+=" -r kali-${architecture}"
 command+=" -b /dev"
 command+=" -b /proc"
 command+=" -b /sys"
 command+=" -b /data"
 command+=" -b /vendor"
 command+=" -b /system"
-command+=" -b kali-$1/root:/dev/shm"
+command+=" -b kali-${architecture}/root:/dev/shm"
 command+=" -b /storage"
 command+=" -b /mnt"
 command+=" -w /root"
 command+=" /usr/bin/env -i"
 command+=" HOME=/root"
 command+=" PATH=/usr/local/sbin:/usr/local/bin:/bin:/usr/bin:/sbin:/usr/sbin:/usr/games:/usr/local/games"
-command+=" TERM=$TERM"
+command+=" TERM=\$TERM"
 command+=" LANG=C.UTF-8"
 command+=" /bin/bash --login"
-com="$2 $3 $4 $5 $6 $7 $8 $9"
-if [ -z "$2" ]; then
-    exec $command
+com="\$2 \$3 \$4 \$5 \$6 \$7 \$8 \$9"
+if [ -z "\$2" ]; then
+    exec \$command
 else
-    $command -c "$com"
+    \$command -c "\$com"
 fi
 EOL
     
@@ -253,7 +163,7 @@ nh_create_desktop_shortcut() {
     
     cat > "$shortcut_file" << EOF
 #!/data/data/com.termux/files/usr/bin/bash
-cd $NH_INSTALL_DIR && ./start-nethunter.sh $architecture
+cd $NH_INSTALL_DIR && ./start-nethunter.sh
 EOF
     
     chmod 700 "$shortcut_file"
@@ -264,7 +174,7 @@ EOF
 
 # Create aliases
 nh_create_aliases() {
-    local architecture=$1
+    local architecture=$1 # Keep arch parameter for consistency, though script path is now fixed
     
     nh_log "INFO" "Creating aliases"
     
@@ -275,15 +185,15 @@ nh_create_aliases() {
         sed -i '/alias nh=/d' "$HOME/.bashrc"
     fi
     
-    # Add new aliases
-    echo "alias nethunter='$NH_INSTALL_DIR/start-nethunter.sh $architecture'" >> "$HOME/.bashrc"
-    echo "alias nh='$NH_INSTALL_DIR/start-nethunter.sh $architecture'" >> "$HOME/.bashrc"
+    # Add new aliases (Point to the generic start script)
+    echo "alias nethunter='$NH_INSTALL_DIR/start-nethunter.sh'" >> "$HOME/.bashrc"
+    echo "alias nh='$NH_INSTALL_DIR/start-nethunter.sh'" >> "$HOME/.bashrc"
     
     # Also add to .profile for other shells
     if [ -f "$HOME/.profile" ]; then
         if ! grep -q "alias nethunter=" "$HOME/.profile"; then
-            echo "alias nethunter='$NH_INSTALL_DIR/start-nethunter.sh $architecture'" >> "$HOME/.profile"
-            echo "alias nh='$NH_INSTALL_DIR/start-nethunter.sh $architecture'" >> "$HOME/.profile"
+            echo "alias nethunter='$NH_INSTALL_DIR/start-nethunter.sh'" >> "$HOME/.profile"
+            echo "alias nh='$NH_INSTALL_DIR/start-nethunter.sh'" >> "$HOME/.profile"
         fi
     fi
     
@@ -309,14 +219,27 @@ nh_install() {
     
     # Create backup of existing installation if it exists
     if [ -d "$NH_INSTALL_DIR/kali-$architecture" ]; then
-        nh_log "INFO" "Existing installation found"
+        nh_log "INFO" "Existing installation found for $architecture"
         
         if [ "$NH_FORCE_MODE" != "true" ] && [ "$NH_AUTO_MODE" != "true" ]; then
             read -p "Backup existing installation before proceeding? (y/n) " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
-                nh_create_backup "$NH_INSTALL_DIR/kali-$architecture" "nethunter_backup_$(date +%Y%m%d_%H%M%S)"
+                nh_create_backup "$NH_INSTALL_DIR/kali-$architecture" "nethunter_${architecture}_backup_$(date +%Y%m%d_%H%M%S)"
             fi
+            # Ask if user wants to remove the old installation before proceeding
+            read -p "Remove existing installation directory '$NH_INSTALL_DIR/kali-$architecture' before installing new one? (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                 nh_log "INFO" "Removing existing installation directory: $NH_INSTALL_DIR/kali-$architecture"
+                 rm -rf "$NH_INSTALL_DIR/kali-$architecture"
+            else
+                 nh_log "ERROR" "Cannot proceed with installation while existing directory exists. Please remove it manually or allow removal."
+                 return 1
+            fi
+        elif [ "$NH_FORCE_MODE" = "true" ]; then
+             nh_log "INFO" "Removing existing installation directory (force mode): $NH_INSTALL_DIR/kali-$architecture"
+             rm -rf "$NH_INSTALL_DIR/kali-$architecture"
         fi
     fi
     
@@ -329,6 +252,7 @@ nh_install() {
     # Create launch script
     if ! nh_create_launch_script "$architecture"; then
         nh_log "ERROR" "Failed to create launch script"
+        # Consider cleanup here if needed
         return 1
     fi
     
@@ -342,11 +266,11 @@ nh_install() {
         nh_log "WARNING" "Failed to create aliases"
     fi
     
-    # Save configuration
+    # Save configuration (Update default type)
     NH_DEFAULT_IMAGE_TYPE="$image_type"
     nh_save_config
     
-    nh_log "SUCCESS" "NetHunter installation completed successfully"
+    nh_log "SUCCESS" "NetHunter installation completed successfully for $architecture"
     nh_log "INFO" "To start NetHunter, run: nethunter or nh"
     nh_log "INFO" "You can also use the shortcut in the Termux widget"
     
@@ -357,9 +281,21 @@ nh_install() {
 nh_uninstall() {
     nh_log "INFO" "Uninstalling NetHunter"
     
+    # Detect installed architecture(s)
+    local installed_archs=()
+    if [ -d "$NH_INSTALL_DIR" ]; then
+        installed_archs=($(find "$NH_INSTALL_DIR" -maxdepth 1 -type d -name 'kali-*' -printf '%f\n' | sed 's/kali-//'))
+    fi
+
+    if [ ${#installed_archs[@]} -eq 0 ]; then
+        nh_log "WARNING" "No NetHunter installation found to uninstall."
+    else 
+        nh_log "INFO" "Found installations for architectures: ${installed_archs[*]}"
+    fi
+
     # Ask for confirmation if not in force mode
     if [ "$NH_FORCE_MODE" != "true" ] && [ "$NH_AUTO_MODE" != "true" ]; then
-        read -p "Are you sure you want to uninstall NetHunter? This will remove all data. (y/n) " -n 1 -r
+        read -p "Are you sure you want to uninstall NetHunter? This will remove all data for found architectures. (y/n) " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             nh_log "INFO" "Uninstallation cancelled"
@@ -367,18 +303,18 @@ nh_uninstall() {
         fi
     fi
     
-    # Create backup if requested
-    if [ "$NH_FORCE_MODE" != "true" ] && [ "$NH_AUTO_MODE" != "true" ]; then
-        read -p "Create backup before uninstalling? (y/n) " -n 1 -r
+    # Create backup if requested (Backup the whole install dir)
+    if [ "$NH_FORCE_MODE" != "true" ] && [ "$NH_AUTO_MODE" != "true" ] && [ -d "$NH_INSTALL_DIR" ]; then
+        read -p "Create backup of '$NH_INSTALL_DIR' before uninstalling? (y/n) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            nh_create_backup "$NH_INSTALL_DIR" "nethunter_backup_$(date +%Y%m%d_%H%M%S)"
+            nh_create_backup "$NH_INSTALL_DIR" "nethunter_full_backup_$(date +%Y%m%d_%H%M%S)"
         fi
     fi
     
     # Remove installation directory
     if [ -d "$NH_INSTALL_DIR" ]; then
-        nh_log "INFO" "Removing installation directory"
+        nh_log "INFO" "Removing installation directory: $NH_INSTALL_DIR"
         rm -rf "$NH_INSTALL_DIR"
     fi
     
@@ -409,7 +345,7 @@ nh_uninstall() {
     
     # Ask if user wants to remove configuration and cache
     if [ "$NH_FORCE_MODE" != "true" ] && [ "$NH_AUTO_MODE" != "true" ]; then
-        read -p "Remove configuration and cache files? (y/n) " -n 1 -r
+        read -p "Remove configuration and cache files ($NH_CONFIG_DIR)? (y/n) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             nh_log "INFO" "Removing configuration and cache"
@@ -424,60 +360,34 @@ nh_uninstall() {
     return 0
 }
 
-# Update NetHunter
+# Update NetHunter (Simplified: Essentially reinstall)
+# TODO: Implement a more sophisticated update mechanism if possible
 nh_update() {
     local image_type=${1:-"$NH_DEFAULT_IMAGE_TYPE"}
     local architecture=${2:-$(nh_check_architecture)}
     
-    nh_log "INFO" "Updating NetHunter"
+    nh_log "INFO" "Updating NetHunter for $architecture (This will perform a fresh install)"
     nh_log "INFO" "Image type: $image_type"
-    nh_log "INFO" "Architecture: $architecture"
     
-    # Create backup of existing installation if it exists
-    if [ -d "$NH_INSTALL_DIR/kali-$architecture" ]; then
-        nh_log "INFO" "Existing installation found"
-        
-        if [ "$NH_FORCE_MODE" != "true" ] && [ "$NH_AUTO_MODE" != "true" ]; then
-            read -p "Backup existing installation before updating? (y/n) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                nh_create_backup "$NH_INSTALL_DIR/kali-$architecture" "nethunter_backup_$(date +%Y%m%d_%H%M%S)"
-            fi
-        fi
+    # Force mode is implicitly enabled for update's reinstall logic
+    local original_force_mode=$NH_FORCE_MODE
+    NH_FORCE_MODE=true 
+    
+    nh_install "$image_type" "$architecture"
+    local install_status=$?
+    
+    # Restore original force mode setting
+    NH_FORCE_MODE=$original_force_mode 
+    
+    if [ $install_status -eq 0 ]; then
+        nh_log "SUCCESS" "NetHunter update (reinstall) completed successfully for $architecture"
     else
-        nh_log "WARNING" "No existing installation found, performing fresh install"
-        nh_install "$image_type" "$architecture"
-        return $?
+        nh_log "ERROR" "NetHunter update (reinstall) failed for $architecture"
     fi
     
-    # Download and extract rootfs
-    if ! nh_download_rootfs "$image_type" "$architecture"; then
-        nh_log "ERROR" "Failed to download and extract rootfs"
-        return 1
-    fi
-    
-    # Update launch script
-    if ! nh_create_launch_script "$architecture"; then
-        nh_log "ERROR" "Failed to update launch script"
-        return 1
-    fi
-    
-    # Update desktop shortcut
-    if ! nh_create_desktop_shortcut "$architecture"; then
-        nh_log "WARNING" "Failed to update desktop shortcut"
-    fi
-    
-    # Update aliases
-    if ! nh_create_aliases "$architecture"; then
-        nh_log "WARNING" "Failed to update aliases"
-    fi
-    
-    # Save configuration
-    NH_DEFAULT_IMAGE_TYPE="$image_type"
-    nh_save_config
-    
-    nh_log "SUCCESS" "NetHunter updated successfully"
-    nh_log "INFO" "To start NetHunter, run: nethunter or nh"
-    
-    return 0
+    return $install_status
 }
+
+# --- Obsolete Function --- 
+# nh_fetch_image_list() { ... } # Removed as index.json is no longer used
+
