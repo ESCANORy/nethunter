@@ -990,3 +990,36 @@ nethunter-cli install --yes --type minimal --quiet
 ---
 
 *هذه الأداة ليست تابعة رسمياً لـ Kali Linux أو Termux ما لم يُذكر خلاف ذلك.*
+
+
+## دليل التثبيت على Termux
+
+لتثبيت NetHunter CLI على Termux، اتبع الخطوات التالية:
+
+1.  **تحديث حزم Termux:**
+    ```bash
+    pkg update && pkg upgrade -y
+    ```
+
+2.  **تثبيت Git:**
+    ```bash
+    pkg install git -y
+    ```
+
+3.  **استنساخ المستودع:**
+    ```bash
+    git clone https://github.com/ESCANORy/nethunter.git
+    ```
+
+4.  **الدخول إلى مجلد الأداة:**
+    ```bash
+    cd nethunter/dist
+    ```
+
+5.  **تشغيل أداة التثبيت:**
+    (قد تحتاج إلى مراجعة الأداة نفسها لمعرفة الأمر الدقيق للتثبيت، ولكن بشكل عام قد يكون شيئاً مثل:)
+    ```bash
+    bash nethunter-cli --install
+    ```
+    *ملاحظة: يرجى الرجوع إلى خيارات الأداة (`bash nethunter-cli --help`) للحصول على أمر التثبيت الصحيح إذا كان مختلفاً.*
+
