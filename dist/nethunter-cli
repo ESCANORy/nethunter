@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# nethunter-cli - Main entry point for NetHunter CLI
+# Version: 3.0 (May 2025)
+
+# Determine script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source required modules
+source "$SCRIPT_DIR/src/core.sh"
+source "$SCRIPT_DIR/src/utils.sh"
+source "$SCRIPT_DIR/src/install.sh"
+source "$SCRIPT_DIR/src/gpg.sh"
+source "$SCRIPT_DIR/src/cli.sh"
+
+# Run CLI main function
+nh_cli_main "$@"
+
+# Exit with the return code from the main function
+exit $?
