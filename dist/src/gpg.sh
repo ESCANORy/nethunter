@@ -54,20 +54,31 @@ nh_gpg_import_key() {
         }
     fi
     
-    # Check if key file exists
+    # Check if key file exists and is readable
     if [ ! -f "$key_file" ]; then
         nh_log "ERROR" "Public key file not found: $key_file"
         return 1
-    fi
-    
-    # Import the key
-    gpg --import "$key_file" 2>/dev/null
-    
-    if [ $? -ne 0 ]; then
-        nh_log "ERROR" "Failed to import public key"
+    elif [ ! -r "$key_file" ]; then
+        nh_log "ERROR" "Public key file is not readable: $key_file"
+        nh_log "ERROR" "Please check file permissions."
         return 1
     fi
     
+    # Import the key and capture stderr
+    local gpg_output
+    gpg_output=$(gpg --import "$key_file" 2>&1)
+    local gpg_exit_code=$?
+    
+    if [ $gpg_exit_code -ne 0 ]; then
+        nh_log "ERROR" "Failed to import public key (gpg exit code: $gpg_exit_code)"
+        nh_log "ERROR" "GPG Output: $gpg_output"
+        # Suggest checking permissions, key validity, or GPG setup
+        nh_log "ERROR" "Please check GPG setup, key file permissions, and key validity."
+        return 1
+    fi
+    
+    # Log success and any potentially useful info from gpg output
+    nh_log "DEBUG" "GPG Import Output: $gpg_output"
     nh_log "SUCCESS" "Public key imported successfully"
     return 0
 }
@@ -279,18 +290,16 @@ nh_verify_file_hash() {
     # Calculate hash
     local actual_hash=""
     case "$hash_type" in
-        "md5")
-            actual_hash=$(md5sum "$file" 2>/dev/null | awk '{print $1}')
+        "m            actual_hash=$(md5sum "$file" 2>/dev/null | cut -d ' ' -f 1)
             ;;
         "sha1")
-            actual_hash=$(sha1sum "$file" 2>/dev/null | awk '{print $1}')
+            actual_hash=$(sha1sum "$file" 2>/dev/null | cut -d ' ' -f 1)
             ;;
         "sha256")
-            actual_hash=$(sha256sum "$file" 2>/dev/null | awk '{print $1}')
+            actual_hash=$(sha256sum "$file" 2>/dev/null | cut -d ' ' -f 1)
             ;;
         "sha512")
-            actual_hash=$(sha512sum "$file" 2>/dev/null | awk '{print $1}')
-            ;;
+            actual_hash=$(sha512sum "$file" 2>/dev/null | cut -d ' ' -f 1)          ;;
         *)
             nh_log "ERROR" "Unsupported hash type: $hash_type"
             return 1
@@ -319,7 +328,7 @@ nh_verify_file_hash() {
         if [ "$NH_FORCE_MODE" = "true" ]; then
             nh_log "WARNING" "Force mode: continuing despite hash verification failure"
             return 0
-        }
+        fi # Corrected brace placement
         
         # Ask user if they want to continue
         if [ "$NH_AUTO_MODE" != "true" ]; then

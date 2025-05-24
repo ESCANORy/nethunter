@@ -17,8 +17,19 @@ nh_check_space() {
     
     nh_log "INFO" "Checking available space"
     
-    # Get available space in KB
-    local available_space=$(df $HOME | awk 'NR==2 {print $4}')
+    # Get available space in KB using POSIX df and cut for better compatibility
+    local df_output=$(df -kP "$HOME" 2>/dev/null | tail -n 1)
+    local available_space=$(echo "$df_output" | tr -s ' ' | cut -d ' ' -f 4)
+    # Check if available_space is a number
+    if ! [[ "$available_space" =~ ^[0-9]+$ ]]; then
+        nh_log "WARNING" "Could not determine available space using df. Attempting stat..."
+        # Fallback using stat -f (might be less portable)
+        available_space=$(stat -f --format=%a*%S/1024 "$HOME" 2>/dev/null | bc)
+        if ! [[ "$available_space" =~ ^[0-9]+$ ]]; then
+             nh_log "ERROR" "Failed to determine available disk space."
+             return 1 # Or handle error appropriately
+        fi
+    fi
     local available_mb=$(( available_space / 1024 ))
     
     nh_log "INFO" "Available space: $available_mb MB"
@@ -93,9 +104,11 @@ nh_download_file() {
     # Create directory if it doesn't exist
     mkdir -p "$(dirname "$output_file")"
     
-    # Get file size before download for context
-    local file_size=$(curl -sI -L "$url" | grep -i "Content-Length" | awk 
-'{print $2}' | tr -d '\r')
+    # Get file size before download for context using grep and sed for portability
+    local content_length_line=$(curl -sI -L "$url" | grep -i "^Content-Length:")
+    local file_size=$(echo "$content_length_line" | sed -n 's/^Content-Length:[[:space:]]*\([0-9]*\).*/\1/p')
+    # Remove potential carriage return
+    file_size=$(echo "$file_size" | tr -d '\r')
     if [ ! -z "$file_size" ] && [[ "$file_size" =~ ^[0-9]+$ ]]; then
         local size_mb=$(echo "scale=2; $file_size/1048576" | bc 2>/dev/null || echo "unknown")
         nh_log "INFO" "Expected file size: ~${size_mb} MB"
@@ -103,18 +116,21 @@ nh_download_file() {
         nh_log "INFO" "Could not determine expected file size."
     fi
     
-    # Download with wget: -c resumes, -O saves to file, --progress shows bar
-    # Add timeout and retry options for robustness
-    local wget_opts="-c -O \"$output_file\" --tries=3 --timeout=30"
+    # Construct wget command arguments array
+    local wget_args=(-c --tries=3 --timeout=30)
     if [ "$NH_QUIET_MODE" = "true" ]; then
-        wget_opts+=" -q"
+        wget_args+=(-q)
     else
-        # Force progress bar even if output is redirected (useful for logs)
-        wget_opts+=" --progress=bar:force"
+        wget_args+=(--progress=bar:force)
     fi
-    
-    # Execute wget command
-    eval wget $wget_opts "$url"
+    wget_args+=(-O "$output_file") # Quote the output file path
+    wget_args+=("$url") # Add the URL as the last argument
+
+    # Log the command for debugging
+    nh_log "DEBUG" "Executing wget command: wget ${wget_args[*]}"
+
+    # Execute wget command directly
+    wget "${wget_args[@]}"
     local wget_exit_code=$?
     
     # Check wget exit code for success/failure

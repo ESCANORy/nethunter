@@ -18,28 +18,28 @@ NH_KEEP_ARCHIVE=false
 NH_QUIET_MODE=false
 NH_VERBOSE_MODE=false
 NH_AUTO_MODE=false
-NH_FORCE_MODE=false
-
-# ===== Colors =====
-if [ "$NH_NO_COLOR" != "true" ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    BLUE='\033[0;34m'
-    PURPLE='\033[0;35m'
-    CYAN='\033[0;36m'
-    NC='\033[0m' # No Color
+NH_FORCE_MODE# ===== Colors =====
+# Check for terminal capabilities and --no-color flag
+if [ -z "$NH_NO_COLOR" ] && [ -t 1 ] && command -v tput >/dev/null 2>&1 && [ "$(tput colors)" -ge 8 ]; then
+    nh_log "DEBUG" "Terminal supports colors, enabling colored output."
+    RED=$(tput setaf 1)
+    GREEN=$(tput setaf 2)
+    YELLOW=$(tput setaf 3)
+    BLUE=$(tput setaf 4)
+    PURPLE=$(tput setaf 5)
+    CYAN=$(tput setaf 6)
+    NC=$(tput sgr0) # Reset attributes
+    nh_log "DEBUG" "Color codes set: RED=\"$RED\", NC=\"$NC\""
 else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    BLUE=''
-    PURPLE=''
-    CYAN=''
-    NC=''
-fi
-
-# ===== Core Functions =====
+    nh_log "DEBUG" "Terminal does not support colors or --no-color flag set, disabling colored output."
+    RED=
+    GREEN=
+    YELLOW=
+    BLUE=
+    PURPLE=
+    CYAN=
+    NC=
+fi===
 
 # Initialize environment
 nh_init() {
